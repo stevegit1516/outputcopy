@@ -30,9 +30,11 @@ What it does not do:
 
 Download the appropriate binary from GitHub Releases:
 
-    curl -LO https://github.com/re-verse/rcp/releases/latest/download/rcp-linux-amd64
-    chmod +x rcp-linux-amd64
-    sudo mv rcp-linux-amd64 /usr/local/bin/rcp
+```bash
+curl -LO [https://github.com/re-verse/rcp/releases/latest/download/rcp-linux-amd64](https://github.com/re-verse/rcp/releases/latest/download/rcp-linux-amd64)
+chmod +x rcp-linux-amd64
+sudo mv rcp-linux-amd64 /usr/local/bin/rcp
+```
 
 Available builds typically include:
 
@@ -43,68 +45,57 @@ Available builds typically include:
 
 No Go installation is required to run the binary.
 
----
-
 ### Build from source (Go)
 
 You only need Go to build, not to run.
 
-    go build -o rcp rcp.go
-    sudo install -m 0755 rcp /usr/local/bin/rcp
+```bash
+# Build with version tag
+go build -ldflags "-s -w -X main.Version=1.0.0" -o rcp rcp.go
+sudo install -m 0755 rcp /usr/local/bin/rcp
+```
 
 Cross-compile from macOS to Linux:
 
-    GOOS=linux GOARCH=amd64 go build -o rcp-linux-amd64 rcp.go
+```bash
+GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.Version=1.0.0" -o rcp-linux-amd64 rcp.go
+```
 
 ---
 
 ## Usage
 
-### Copy a file
+`rcp` reads from stdin by default, or from a file if provided as an argument.
 
-    rcp file.txt
+| Flag | Description | Example |
+| :--- | :--- | :--- |
+| **`-t`** | **Trim whitespace.** Removes leading/trailing whitespace. Essential for secrets. | `cat .env \| rcp -t` |
+| **`-n`** | **Add line numbers.** Formats output with line numbers. Great for sharing code. | `rcp -n main.go` |
+| **`-p`** | **Primary Selection.** (Linux) Copies to the middle-click buffer. | `date \| rcp -p` |
+| **`--limit`** | **Set byte limit.** Override the 100KB safety cap. | `rcp --limit 500000 log.txt` |
 
----
+### Examples
 
-### Copy a file with the command shown
+**Copy a file:**
+```bash
+rcp file.txt
+```
 
-    rcp -c file.txt
+**Copy command output:**
+```bash
+date | rcp
+```
 
-Clipboard contents:
+**Copy a clean token (Trim):**
+```bash
+# Strips the trailing newline so you can paste into password fields
+cat token.txt | rcp -t
+```
 
-    cat file.txt
-    <file contents>
-
----
-
-### Copy command output (stdin)
-
-    date | rcp
-
----
-
-### Copy a command and its output
-
-    rcp -e "date"
-
-Clipboard contents:
-
-    date
-    Sun Jan  6 10:42:31 CST 2026
-
----
-
-### Explicit stdin
-
-    rcp -
-
----
-
-### Help
-
-    rcp -h
-    rcp --help
-    rcp /?
+**Share code with context (Line Numbers):**
+```bash
+rcp -n config.yaml
+```
 
 ---
 
@@ -119,7 +110,9 @@ This is intentional:
 
 Override if needed:
 
-    RCOPY_MAX_BYTES=200000 rcp big.txt
+```bash
+RCOPY_MAX_BYTES=200000 rcp big.txt
+```
 
 ---
 
