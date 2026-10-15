@@ -13,3 +13,6 @@ rcp-*
 # Editor junk
 .idea/
 .vscode/
+
+# Local pre-rewrite backup (do not publish)
+rcp.go.before-outputcopy

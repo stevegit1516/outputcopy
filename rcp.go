@@ -1,152 +1,202 @@
 package main
 
 import (
+	"bytes"
 	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-// Version can be injected at build time: go build -ldflags "-X main.Version=1.0.0"
 var Version = "1.0.0"
 
-// Default limit prevents blowing up the terminal (100KB)
-// Override with env var RCOPY_MAX_BYTES
 const DefaultLimit = 100000
 
 func main() {
-	// Flags
-	var (
-		trim      = flag.Bool("t", false, "Trim leading/trailing whitespace")
-		lineNums  = flag.Bool("n", false, "Add line numbers to the output")
-		primary   = flag.Bool("p", false, "Use Linux Primary selection (middle-click) instead of Clipboard")
-		ver       = flag.Bool("version", false, "Print version and exit")
-		maxBytes  int
-	)
-
-	// Custom usage message for 1.0 polish
+	trim := flag.Bool("t", false, "Trim whitespace before copying")
+	lineNums := flag.Bool("n", false, "Add line numbers")
+	primary := flag.Bool("p", false, "Use Linux Primary selection")
+	ver := flag.Bool("version", false, "Print version")
+	fileMode := flag.Bool("file", false, "Copy a file instead of running a command")
+	maxBytes := flag.Int("limit", getEnvInt("RCOPY_MAX_BYTES", DefaultLimit), "Maximum clipboard bytes")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: rcp [flags] [file]\n\n")
-		fmt.Fprintf(os.Stderr, "Copy input to the remote clipboard via OSC52.\n")
-		fmt.Fprintf(os.Stderr, "Reads from stdin if no file is specified.\n\n")
-		fmt.Fprintf(os.Stderr, "Flags:\n")
+		fmt.Fprintln(os.Stderr, "Usage: outputcopy [flags] COMMAND [ARGS...]")
+		fmt.Fprintln(os.Stderr, "       outputcopy --file FILE")
+		fmt.Fprintln(os.Stderr, "       COMMAND | outputcopy")
 		flag.PrintDefaults()
 	}
-
-	flag.IntVar(&maxBytes, "limit", getEnvInt("RCOPY_MAX_BYTES", DefaultLimit), "Max bytes to copy (env RCOPY_MAX_BYTES)")
 	flag.Parse()
 
 	if *ver {
-		fmt.Printf("rcp version %s\n", Version)
-		os.Exit(0)
+		fmt.Printf("outputcopy version %s\n", Version)
+		return
+	}
+	if *maxBytes < 1 {
+		fmt.Fprintln(os.Stderr, "[outputcopy] limit must be positive")
+		os.Exit(2)
 	}
 
-	// 1. Determine Input Source
-	var input io.Reader
-	var err error
-
-	if flag.NArg() > 0 {
-		// Read from file argument
-		f, err := os.Open(flag.Arg(0))
+	args := flag.Args()
+	if *fileMode {
+		if len(args) != 1 {
+			flag.Usage()
+			os.Exit(2)
+		}
+		f, err := os.Open(args[0])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error opening file: %v\n", err)
+			fmt.Fprintln(os.Stderr, "[outputcopy]", err)
 			os.Exit(1)
 		}
 		defer f.Close()
-		input = f
-	} else {
-		// Read from Stdin
-		stat, _ := os.Stdin.Stat()
-		if (stat.Mode() & os.ModeCharDevice) != 0 {
-			// User ran 'rcp' with no args and no pipe. Show help instead of hanging.
-			flag.Usage()
-			os.Exit(1)
-		}
-		input = os.Stdin
+		copyInput(f, *maxBytes, *trim, *lineNums, *primary)
+		return
+	}
+	if len(args) > 0 {
+		os.Exit(runCommand(args, *maxBytes, *trim, *lineNums, *primary))
 	}
 
-	// 2. Read Content (up to limit)
-	// We read everything first to apply transforms (Trim, LineNums)
-	// For massive files, the limit kicks in during read to save memory.
-	reader := io.LimitReader(input, int64(maxBytes))
-	content, err := io.ReadAll(reader)
+	stat, err := os.Stdin.Stat()
+	if err == nil && stat.Mode()&os.ModeCharDevice != 0 {
+		flag.Usage()
+		os.Exit(2)
+	}
+	copyInput(os.Stdin, *maxBytes, *trim, *lineNums, *primary)
+}
+
+type captureWriter struct {
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (w *captureWriter) Write(p []byte) (int, error) {
+	n, err := os.Stdout.Write(p)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	remaining := w.limit - w.buf.Len()
+	take := n
+	if take > remaining {
+		take = remaining
+	}
+	if take > 0 {
+		_, _ = w.buf.Write(p[:take])
+	}
+	if n > take {
+		w.truncated = true
+	}
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	return n, err
+}
+
+func runCommand(args []string, limit int, trim, lineNums, primary bool) int {
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Stdin = os.Stdin
+	captured := &captureWriter{limit: limit}
+	cmd.Stdout, cmd.Stderr = captured, captured
+	err := cmd.Run()
+
+	code := 0
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			code = exitErr.ExitCode()
+			if code < 0 {
+				code = 1
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "[outputcopy] cannot start command:", err)
+			return 127
+		}
+	}
+
+	captured.mu.Lock()
+	text := transformText(captured.buf.String(), trim, lineNums)
+	truncated := captured.truncated
+	captured.mu.Unlock()
+
+	if text != "" {
+		emitClipboard(text, primary)
+	}
+	if truncated {
+		fmt.Fprintf(os.Stderr, "\n[outputcopy] Clipboard limited to %d bytes; terminal output is complete.\n", limit)
+	}
+	return code
+}
+
+func copyInput(input io.Reader, limit int, trim, lineNums, primary bool) {
+	content, err := io.ReadAll(io.LimitReader(input, int64(limit)+1))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "[outputcopy] read error:", err)
 		os.Exit(1)
 	}
-
-	if len(content) == 0 {
-		return // Nothing to copy
+	truncated := len(content) > limit
+	if truncated {
+		content = content[:limit]
 	}
-
-	// 3. Process Content
-	text := string(content)
-
-	if *trim {
-		text = strings.TrimSpace(text)
+	text := transformText(string(content), trim, lineNums)
+	if text != "" {
+		emitClipboard(text, primary)
 	}
-
-	if *lineNums {
-		text = addLineNumbers(text)
-	}
-
-	// 4. Encode & Output OSC52
-	target := "c" // Default: Clipboard
-	if *primary {
-		target = "p" // Linux Primary (Middle-click)
-	}
-
-	encoded := base64.StdEncoding.EncodeToString([]byte(text))
-	
-	// \033]52;target;content\a
-	fmt.Printf("\033]52;%s;%s\a", target, encoded)
-
-	// Optional: Print a friendly stderr message if we hit the limit
-	if len(content) == maxBytes {
-		fmt.Fprintf(os.Stderr, "[rcp] Warning: Input truncated at %d bytes.\n", maxBytes)
+	if truncated {
+		fmt.Fprintf(os.Stderr, "[outputcopy] Clipboard limited to %d bytes.\n", limit)
 	}
 }
 
-// Helper to number lines efficiently
+func transformText(text string, trim, lineNums bool) string {
+	if trim {
+		text = strings.TrimSpace(text)
+	}
+	if lineNums {
+		text = addLineNumbers(text)
+	}
+	return text
+}
+
+func emitClipboard(text string, primary bool) {
+	target := "c"
+	if primary {
+		target = "p"
+	}
+	encoded := base64.StdEncoding.EncodeToString([]byte(text))
+	fmt.Printf("\033]52;%s;%s\a", target, encoded)
+}
+
 func addLineNumbers(text string) string {
 	lines := strings.Split(text, "\n")
-	// Handle trailing newline edge case (split creates empty string at end)
 	if len(lines) > 0 && lines[len(lines)-1] == "" {
 		lines = lines[:len(lines)-1]
 	}
-
-	// Calculate padding width based on line count
-	digitCount := len(strconv.Itoa(len(lines)))
-	format := fmt.Sprintf("%%%dd %%s", digitCount) // e.g. "%3d %s"
-
-	var sb strings.Builder
-	// Pre-allocate approximate size to avoid re-allocations
-	sb.Grow(len(text) + (len(lines) * (digitCount + 2)))
-
+	digits := len(strconv.Itoa(len(lines)))
+	format := fmt.Sprintf("%%%dd %%s", digits)
+	var out strings.Builder
+	out.Grow(len(text) + len(lines)*(digits+2))
 	for i, line := range lines {
 		if i > 0 {
-			sb.WriteByte('\n')
+			out.WriteByte('\n')
 		}
-		fmt.Fprintf(&sb, format, i+1, line)
+		fmt.Fprintf(&out, format, i+1, line)
 	}
-	
-	// Preserve original trailing newline if it existed
 	if strings.HasSuffix(text, "\n") {
-		sb.WriteByte('\n')
+		out.WriteByte('\n')
 	}
-
-	return sb.String()
+	return out.String()
 }
 
-// Helper to get env var as int
-func getEnvInt(key string, defaultVal int) int {
+func getEnvInt(key string, fallback int) int {
 	if val, ok := os.LookupEnv(key); ok {
-		if i, err := strconv.Atoi(val); err == nil {
-			return i
+		if n, err := strconv.Atoi(val); err == nil {
+			return n
 		}
 	}
-	return defaultVal
+	return fallback
 }
