@@ -1,25 +1,16 @@
 # outputcopy
+It automatically copies your terminal output  - Linux Windows MacOS android compatible 
 
+If your dev loop involves copy from ChatGPT/Gemini/Claude to a terminal 
+and then copy terminal to ChatGPT/Gemini/Claude, it will save you 30% of your time, and remove the fiddly bit of pretending to code
 
-
-Copy full command output text directly to your local clipboard via OSC52 (works over SSH, tmux, and modern terminals like iTerm2, Kitty, WezTerm, and tmux).
-
-
-
-`outputcopy` is a lightweight Go CLI tool evolved from `rcp`. It wraps commands, processes files, and captures live terminal streams from remote shell sessions without requiring X forwarding, SCP, or manual text selection.
-
-
-
-It eliminates friction during remote server management or vibecoding by allowing complete execution blocks to be automatically highlighted and copied.
-
-
+works over remote SSH, and local 
 
 ---
 
 
 
-## What It Does
-
+## the technical bit
 
 
 - Wraps and executes shell commands, capturing both stdout and stderr streams simultaneously.
@@ -36,7 +27,7 @@ It eliminates friction during remote server management or vibecoding by allowing
 
 - Copy huge payloads (enforces explicit byte safety caps).
 
-- Work in terminals lacking OSC52 support.
+- Work in terminals lacking copy support (OSC52)  (almost all modern teminals support copying though).
 
 - Manage clipboard history or state.
 
