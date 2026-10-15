@@ -2,7 +2,8 @@
 It automatically copies your terminal output  - Linux Windows MacOS android compatible 
 
 If your dev loop involves: copy from ChatGPT/Gemini/Claude to a terminal , run,
-and then copy terminal output to ChatGPT/Gemini/Claude, it will save you 30% of your time, and remove the fiddly bit of pretending to code
+and then copy terminal output to ChatGPT/Gemini/Claude.
+It will save you 30% of your time, and remove the fiddly bit of pretending to code
 
 works over remote SSH, and local 
 
