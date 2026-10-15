@@ -1,48 +1,187 @@
 # outputcopy
 
-Copy the full output text to your local clipboard via OSC52 (works with SSH, tmux, and modern terminals).
 
-`outputcopy` is a small Go-based CLI tool derived from the foundational concepts of `rcp`, designed for copying command output, files, and streamed terminal outputs directly from a remote shell session into your local clipboard.
-It works over SSH and tmux without X forwarding, SCP hacks, or manual text selection.
 
-If you spend time on remote servers, this saves friction every day. 
+Copy full command output text directly to your local clipboard via OSC52 (works over SSH, tmux, and modern terminals).
 
-It is ideal for vibecoding or advanced agentic development workflows as you no longer have to onerously highlight batches of text manually. By allowing you to wrap commands and capture full execution blocks programmatically, it enables seamless automated workflows and full-stream batching.
 
----
 
-## What it does
+`outputcopy` is a lightweight Go CLI tool evolved from `rcp`. It wraps commands, processes files, and captures live terminal streams from remote shell sessions without requiring X forwarding, SCP, or manual text selection.
 
-- Wrap and execute shell commands while capturing both standard output (`stdout`) and error streams (`stderr`) simultaneously.
-- Copy complete output streams or file contents to your local clipboard over SSH and tmux using OSC52.
-- Write only the OSC52 escape sequence to stdout (keeping pipelines clean and script-safe).
 
-What it does not do:
 
-- Copy huge files (by design)
-- Work in terminals without OSC52 support
-- Act as a general clipboard manager
+It eliminates friction during remote server management, vibecoding, and agentic LLM workflows by allowing complete execution blocks to be programmatically captured and pasted into models or documents.
 
----
 
-## How it differs from `rcp` in function
 
-| Feature / Behavior | Original `rcp` | New `outputcopy` |
-| :--- | :--- | :--- |
-| **Primary Purpose** | Static file copying (treating arguments as file paths to read and copy). | General-purpose command wrapper, stream capturer, and file copier. |
-| **Command Execution** | None. Attempting to pass a command resulted in `Error opening file: open [cmd]: no such file or directory`. | Executes any shell command via `exec.Command` and captures its exact execution lifecycle. |
-| **Stream Handling** | Limited to single file or basic stdin streams. | Combines and captures **both `stdout` and `stderr`** synchronously into a shared thread-safe buffer without dropping lines or truncating interleaved messages. |
-| **Exit Code Propagation** | N/A (file reader only). | Propagates the exact exit code of the wrapped subprocess back to the parent shell. |
+## What It Does
 
----
+
+
+- Wraps and executes shell commands, capturing both `stdout` and `stderr` streams simultaneously.
+
+- Copies output streams or file contents to your local clipboard using OSC52 sequences.
+
+- Emits only the escape sequence to `stdout`, keeping script pipelines clean.
+
+
+
+### What It Does Not Do
+
+
+
+- Copy huge payloads (enforces explicit byte safety caps).
+
+- Work in terminals lacking OSC52 support.
+
+- Manage clipboard history or state.
+
+
+
+## How It Differs From `rcp`
+
+
+
+| Feature / Behavior | Original `rcp` | `outputcopy` |
+
+| --- | --- | --- |
+
+| **Primary Purpose** | Read static files into clipboard. | Wrap commands, capture streams, and read files. |
+
+| **Command Execution** | None (`Error opening file`). | Executes binaries/scripts directly via `exec.Command`. |
+
+| **Stream Handling** | Single stream / basic stdin. | Thread-safe, non-truncated interception of interleaved `stdout` + `stderr`. |
+
+| **Exit Codes** | N/A | Propagates subprocess exit codes directly to the caller shell. |
+
+
 
 ## Installation
 
-### Prebuilt binaries (recommended)
 
-Download the appropriate binary from GitHub Releases:
 
-```bash
-curl -LO [https://github.com/re-verse/outputcopy/releases/latest/download/outputcopy-linux-amd64](https://github.com/re-verse/outputcopy/releases/latest/download/outputcopy-linux-amd64)
+### Prebuilt Binary
+
+
+
+curl -LO https://github.com/re-verse/outputcopy/releases/latest/download/outputcopy-linux-amd64
+
 chmod +x outputcopy-linux-amd64
+
 sudo mv outputcopy-linux-amd64 /usr/local/bin/outputcopy
+
+
+
+Available architectures: linux-amd64, linux-arm64, darwin-amd64, darwin-arm64.
+
+
+
+### Build from Source
+
+
+
+go build -ldflags "-s -w -X main.Version=1.1.0" -o outputcopy main.go
+
+sudo install -m 0755 outputcopy /usr/local/bin/outputcopy
+
+
+
+## Usage & Examples
+
+
+
+Wrap shell commands directly, read files, or receive standard input.
+
+
+
+### Example: Wrapping Execution Streams
+
+
+
+Capture complex multi-line output directly to clipboard without touch interaction:
+
+
+
+outputcopy bash -c '
+
+  echo "=== PING TEST START ==="
+
+  ping -c 4 8.8.8.8
+
+  echo "=== PING TEST COMPLETE ==="
+
+'
+
+
+
+### Options
+
+
+
+| Flag | Description | Example |
+
+| --- | --- | --- |
+
+| **`-t`** | Trim whitespace (ideal for tokens and secrets). | `cat .env \| outputcopy -t` |
+
+| **`-n`** | Prepend line numbers to output. | `outputcopy -n main.go` |
+
+| **`-p`** | Target Linux primary selection buffer. | `date \| outputcopy -p` |
+
+| **`--limit`** | Override standard safety cap (default: 100KB). | `outputcopy --limit 500000 log.txt` |
+
+
+
+## Size Limits
+
+
+
+By default, `outputcopy` enforces a 100,000 byte cap before base64 encoding to prevent terminal stalling over SSH.
+
+
+
+To override:
+
+
+
+RCOPY_MAX_BYTES=200000 outputcopy big.txt
+
+
+
+## Terminal Support
+
+
+
+Requires OSC52 support. Tested and supported on:
+
+
+
+- iTerm2
+
+- Kitty
+
+- WezTerm
+
+- tmux
+
+- PuTTY (Enable: Window -> Selection -> Enable OSC 52 clipboard)
+
+
+
+## Behavior & Architecture
+
+
+
+- Escape sequences write to `stdout`.
+
+- Status warnings and non-zero exit codes route to `stderr`.
+
+- Safe for pipelines, scripts, and automated agents.
+
+
+
+## License
+
+
+
+MIT
