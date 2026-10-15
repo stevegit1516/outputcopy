@@ -1,17 +1,20 @@
 # rcp
 
-Copy remote text to your local clipboard via OSC52 (works with SSH, tmux, and modern terminals).
+Copy the full output text to your local clipboard via OSC52 (works with SSH, tmux, and modern terminals).
 
-rcp is a small CLI tool for copying text from a remote shell session directly into your local clipboard.
+outputcopy is a small CLI tool - based upon the work from rcp for copying the output text from a remote shell session directly into your local clipboard.
 It works over SSH and tmux without X forwarding, SCP hacks, or manual selection.
 
-If you spend time on remote servers, this saves friction every day.
+If you spend time on remote servers, this saves friction every day. 
+
+it is ideal for vibecoding or advanced slop development as you no longer have to onerously highlight batches of text manually 
+as you can ask the LLM to batch instructions, and it enables you to batch the outputs, so it fully benefits from its own comments, which is one strength of AI 
 
 ---
 
 ## What it does
 
-- Copy a file’s contents to your local clipboard
+- Copy a the complete output of an ssh command contents to your local clipboard
 - Copy command output (date, ls, logs, etc.)
 - Works over SSH and tmux using OSC52
 - Writes only the OSC52 escape sequence to stdout (safe for scripting)
